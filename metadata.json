@@ -1,0 +1,6 @@
+{
+  "name": "Face Fighter Online",
+  "description": "1대1 실시간 온라인 얼굴 격투 게임 (AI 실시간 얼굴 상처 반영)",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
