@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { LogOut } from 'lucide-react';
 import { HeaderNavbar } from './components/HeaderNavbar';
 import { FighterCard } from './components/FighterCard';
 import { QuizCard } from './components/QuizCard';
@@ -316,6 +317,25 @@ export default function App() {
     }
   };
 
+  const handleExitArena = () => {
+    soundFx.playCountdownBeep();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'CANCEL_CUSTOM_ROOM' }));
+      wsRef.current.send(JSON.stringify({ type: 'CANCEL_MATCHMAKING' }));
+    }
+    setScreen('LOBBY');
+    setIsSearching(false);
+    setIsWaitingCustomRoom(false);
+    setCustomRoomCode('');
+    setIsGameOver(false);
+    setWinnerName('');
+    setIsWinner(false);
+    setP1Hp(100);
+    setP2Hp(100);
+    setRoundResult(null);
+    setSelectedOptionIndex(null);
+  };
+
   // Local fallback quiz cycle if server round isn't triggered
   const startLocalRound = () => {
     setP1Hp(100);
@@ -439,6 +459,9 @@ export default function App() {
         p2Hp={p2Hp}
         timer={timer}
         isGameActive={screen === 'ARENA' && !isGameOver}
+        onExitGame={screen === 'ARENA' ? handleExitArena : undefined}
+        soundEnabled={soundEnabled}
+        onToggleSound={handleToggleSound}
       />
 
       {/* Main View Router */}
@@ -505,6 +528,17 @@ export default function App() {
               damageReason={p2DamageReason}
               isHit={p2Hit}
             />
+          </div>
+
+          {/* Bottom Controls Bar (Exit Game) */}
+          <div className="w-full flex items-center justify-center pt-1 pb-2">
+            <button
+              onClick={handleExitArena}
+              className="px-5 py-2.5 bg-neutral-900 hover:bg-red-950 text-neutral-300 hover:text-red-200 border border-neutral-800 hover:border-red-700 font-mono text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-lg group"
+            >
+              <LogOut className="w-4 h-4 text-red-500 group-hover:scale-110 transition-transform" />
+              <span>게임 나가기 (로비로 돌아가기)</span>
+            </button>
           </div>
         </main>
       )}
