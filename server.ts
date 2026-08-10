@@ -335,6 +335,30 @@ function getRandomQuiz() {
   return PRELOADED_QUIZZES[Math.floor(Math.random() * PRELOADED_QUIZZES.length)];
 }
 
+function getWaitingRoomsList() {
+  const roomsList: { roomId: string; hostName: string; hostFaceUrl: string }[] = [];
+  activeRooms.forEach((room, code) => {
+    if (room.status === 'WAITING' && !room.player2) {
+      roomsList.push({
+        roomId: code,
+        hostName: room.player1.name,
+        hostFaceUrl: room.player1.faceUrl || ''
+      });
+    }
+  });
+  return roomsList;
+}
+
+function broadcastRoomList() {
+  const rooms = getWaitingRoomsList();
+  const payload = JSON.stringify({ type: 'ROOM_LIST_UPDATED', rooms });
+  clients.forEach((session, socket) => {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(payload);
+    }
+  });
+}
+
 function broadcastToRoom(room: ActiveRoom, payload: any) {
   const jsonStr = JSON.stringify(payload);
   if (room.player1.ws && room.player1.ws.readyState === WebSocket.OPEN) {
@@ -509,76 +533,21 @@ wss.on('connection', (ws) => {
 
   clients.set(ws, session);
 
+  // Send current open waiting rooms immediately on connect
+  ws.send(JSON.stringify({ type: 'ROOM_LIST_UPDATED', rooms: getWaitingRoomsList() }));
+
   ws.on('message', (messageRaw) => {
     try {
       const data = JSON.parse(messageRaw.toString());
+
+      if (data.type === 'GET_ROOM_LIST') {
+        ws.send(JSON.stringify({ type: 'ROOM_LIST_UPDATED', rooms: getWaitingRoomsList() }));
+      }
 
       if (data.type === 'INIT_PLAYER') {
         session.playerName = data.playerName || session.playerName;
         session.faceUrl = data.faceUrl || '';
         ws.send(JSON.stringify({ type: 'PLAYER_INITIATED', playerId: session.playerId }));
-      }
-
-      if (data.type === 'START_MATCHMAKING') {
-        session.playerName = data.playerName || session.playerName;
-        session.faceUrl = data.faceUrl || '';
-
-        // Check if already in queue
-        if (!matchmakingQueue.includes(session)) {
-          matchmakingQueue.push(session);
-        }
-
-        ws.send(JSON.stringify({ type: 'MATCHMAKING_SEARCHING' }));
-
-        // Try pairing
-        if (matchmakingQueue.length >= 2) {
-          const p1 = matchmakingQueue.shift()!;
-          const p2 = matchmakingQueue.shift()!;
-
-          const roomId = 'room_' + Date.now();
-          const newRoom: ActiveRoom = {
-            id: roomId,
-            player1: {
-              id: p1.playerId,
-              ws: p1.ws,
-              name: p1.playerName,
-              faceUrl: p1.faceUrl,
-              hp: 100,
-              isAi: false,
-              answers: {}
-            },
-            player2: {
-              id: p2.playerId,
-              ws: p2.ws,
-              name: p2.playerName,
-              faceUrl: p2.faceUrl,
-              hp: 100,
-              isAi: false,
-              answers: {}
-            },
-            status: 'COUNTDOWN',
-            questionIndex: 0,
-            currentQuestion: null,
-            timer: 3
-          };
-
-          p1.roomId = roomId;
-          p2.roomId = roomId;
-          activeRooms.set(roomId, newRoom);
-
-          broadcastToRoom(newRoom, {
-            type: 'MATCH_FOUND',
-            roomId,
-            player1: { id: p1.playerId, name: p1.playerName, faceUrl: p1.faceUrl },
-            player2: { id: p2.playerId, name: p2.playerName, faceUrl: p2.faceUrl }
-          });
-
-          setTimeout(() => {
-            if (activeRooms.has(roomId)) {
-              startNextRound(newRoom);
-            }
-          }, 3000);
-        }
       }
 
       if (data.type === 'PLAY_VS_AI') {
@@ -698,6 +667,8 @@ wss.on('connection', (ws) => {
             player1: { id: session.playerId, name: session.playerName, faceUrl: session.faceUrl }
           })
         );
+
+        broadcastRoomList();
       }
 
       if (data.type === 'JOIN_CUSTOM_ROOM') {
@@ -734,6 +705,8 @@ wss.on('connection', (ws) => {
           };
           room.status = 'COUNTDOWN';
 
+          broadcastRoomList();
+
           broadcastToRoom(room, {
             type: 'MATCH_FOUND',
             roomId: code,
@@ -755,6 +728,7 @@ wss.on('connection', (ws) => {
           session.roomId = undefined;
         }
         ws.send(JSON.stringify({ type: 'CUSTOM_ROOM_CANCELLED' }));
+        broadcastRoomList();
       }
     } catch (e) {
       console.error('WebSocket Error processing message:', e);
@@ -777,6 +751,7 @@ wss.on('connection', (ws) => {
       }
     }
     clients.delete(ws);
+    broadcastRoomList();
   });
 });
 

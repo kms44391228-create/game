@@ -1,3 +1,9 @@
+export interface WaitingRoomInfo {
+  roomId: string;
+  hostName: string;
+  hostFaceUrl?: string;
+}
+
 export type QuizCategory = 'Nonsense' | 'General Knowledge' | 'Fun Trivia' | 'Science & Nature' | 'Korean Pop & Culture';
 
 export interface QuizQuestion {

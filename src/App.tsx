@@ -11,7 +11,7 @@ import { QuizCard } from './components/QuizCard';
 import { MatchmakingLobby } from './components/MatchmakingLobby';
 import { FaceScannerModal } from './components/FaceScannerModal';
 import { GameOverModal } from './components/GameOverModal';
-import { QuizQuestion, GameMode } from './types';
+import { QuizQuestion, GameMode, WaitingRoomInfo } from './types';
 import { soundFx } from './lib/audio';
 
 export default function App() {
@@ -33,6 +33,7 @@ export default function App() {
   const [gameMode, setGameMode] = useState<GameMode>('SOLO_AI');
 
   // Private Friend Room State
+  const [openRooms, setOpenRooms] = useState<WaitingRoomInfo[]>([]);
   const [initialRoomCode, setInitialRoomCode] = useState<string>('');
   const [customRoomCode, setCustomRoomCode] = useState<string>('');
   const [isWaitingCustomRoom, setIsWaitingCustomRoom] = useState<boolean>(false);
@@ -136,6 +137,10 @@ export default function App() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          if (data.type === 'ROOM_LIST_UPDATED') {
+            setOpenRooms(data.rooms || []);
+          }
 
           if (data.type === 'MATCHMAKING_SEARCHING') {
             setIsSearching(true);
@@ -303,6 +308,12 @@ export default function App() {
     setIsSearching(false);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'CANCEL_MATCHMAKING' }));
+    }
+  };
+
+  const handleRefreshRooms = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'GET_ROOM_LIST' }));
     }
   };
 
@@ -506,12 +517,11 @@ export default function App() {
           onNameChange={setPlayerName}
           faceUrl={faceUrl}
           onOpenScanner={() => setIsScannerOpen(true)}
-          onStartOnlineMatch={handleStartOnlineMatch}
           onStartAiMatch={handleStartAiMatch}
-          isSearching={isSearching}
-          onCancelSearch={handleCancelSearch}
           soundEnabled={soundEnabled}
           onToggleSound={handleToggleSound}
+          openRooms={openRooms}
+          onRefreshRooms={handleRefreshRooms}
           onCreateCustomRoom={handleCreateCustomRoom}
           onJoinCustomRoom={handleJoinCustomRoom}
           onCancelCustomRoom={handleCancelCustomRoom}
