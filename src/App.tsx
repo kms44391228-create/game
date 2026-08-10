@@ -31,6 +31,21 @@ export default function App() {
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [gameMode, setGameMode] = useState<GameMode>('SOLO_AI');
 
+  // Private Friend Room State
+  const [initialRoomCode, setInitialRoomCode] = useState<string>('');
+  const [customRoomCode, setCustomRoomCode] = useState<string>('');
+  const [isWaitingCustomRoom, setIsWaitingCustomRoom] = useState<boolean>(false);
+  const [customRoomError, setCustomRoomError] = useState<string | null>(null);
+
+  // Parse URL search params ?room=CODE
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room') || params.get('code');
+    if (roomParam) {
+      setInitialRoomCode(roomParam.toUpperCase().trim());
+    }
+  }, []);
+
   // Battle Arena State
   const [p1Hp, setP1Hp] = useState<number>(100);
   const [p2Hp, setP2Hp] = useState<number>(100);
@@ -90,8 +105,27 @@ export default function App() {
             setIsSearching(true);
           }
 
+          if (data.type === 'CUSTOM_ROOM_CREATED') {
+            setCustomRoomCode(data.roomId);
+            setIsWaitingCustomRoom(true);
+            setCustomRoomError(null);
+          }
+
+          if (data.type === 'JOIN_ROOM_ERROR') {
+            setCustomRoomError(data.message || '입장할 수 없습니다.');
+            setIsWaitingCustomRoom(false);
+          }
+
+          if (data.type === 'CUSTOM_ROOM_CANCELLED') {
+            setIsWaitingCustomRoom(false);
+            setCustomRoomCode('');
+            setCustomRoomError(null);
+          }
+
           if (data.type === 'MATCH_FOUND') {
             setIsSearching(false);
+            setIsWaitingCustomRoom(false);
+            setCustomRoomError(null);
             setScreen('ARENA');
             setP1Hp(100);
             setP2Hp(100);
@@ -236,6 +270,52 @@ export default function App() {
     }
   };
 
+  const handleCreateCustomRoom = () => {
+    setGameMode('ONLINE_1V1');
+    setCustomRoomError(null);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'CREATE_CUSTOM_ROOM',
+          playerName,
+          faceUrl
+        })
+      );
+    } else {
+      const code = 'FIGHT' + Math.floor(10 + Math.random() * 90);
+      setCustomRoomCode(code);
+      setIsWaitingCustomRoom(true);
+    }
+  };
+
+  const handleJoinCustomRoom = (codeToJoin: string) => {
+    setGameMode('ONLINE_1V1');
+    setCustomRoomError(null);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'JOIN_CUSTOM_ROOM',
+          roomId: codeToJoin.toUpperCase().trim(),
+          playerName,
+          faceUrl
+        })
+      );
+    } else {
+      setScreen('ARENA');
+      setP2Name('친구 파이터 (' + codeToJoin + ')');
+      startLocalRound();
+    }
+  };
+
+  const handleCancelCustomRoom = () => {
+    setIsWaitingCustomRoom(false);
+    setCustomRoomCode('');
+    setCustomRoomError(null);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'CANCEL_CUSTOM_ROOM' }));
+    }
+  };
+
   // Local fallback quiz cycle if server round isn't triggered
   const startLocalRound = () => {
     setP1Hp(100);
@@ -374,6 +454,13 @@ export default function App() {
           onCancelSearch={handleCancelSearch}
           soundEnabled={soundEnabled}
           onToggleSound={handleToggleSound}
+          onCreateCustomRoom={handleCreateCustomRoom}
+          onJoinCustomRoom={handleJoinCustomRoom}
+          onCancelCustomRoom={handleCancelCustomRoom}
+          customRoomCode={customRoomCode}
+          isWaitingCustomRoom={isWaitingCustomRoom}
+          customRoomError={customRoomError}
+          initialRoomCode={initialRoomCode}
         />
       ) : (
         <main className="flex-grow relative z-10 flex flex-col items-center justify-between p-4 sm:p-8 max-w-7xl mx-auto w-full gap-6">

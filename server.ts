@@ -304,7 +304,7 @@ interface ActiveRoom {
     isAi: boolean;
     answers: { [qIndex: number]: { index: number; timeTaken: number; isCorrect: boolean } };
   };
-  player2: {
+  player2?: {
     id: string;
     ws?: WebSocket;
     name: string;
@@ -313,7 +313,7 @@ interface ActiveRoom {
     isAi: boolean;
     answers: { [qIndex: number]: { index: number; timeTaken: number; isCorrect: boolean } };
   };
-  status: 'COUNTDOWN' | 'QUIZ_ACTIVE' | 'ROUND_RESULT' | 'GAME_OVER';
+  status: 'WAITING' | 'COUNTDOWN' | 'QUIZ_ACTIVE' | 'ROUND_RESULT' | 'GAME_OVER';
   questionIndex: number;
   currentQuestion: any;
   timer: number;
@@ -321,6 +321,15 @@ interface ActiveRoom {
 }
 
 const activeRooms = new Map<string, ActiveRoom>();
+
+function generateRoomCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
 
 function getRandomQuiz() {
   return PRELOADED_QUIZZES[Math.floor(Math.random() * PRELOADED_QUIZZES.length)];
@@ -331,7 +340,7 @@ function broadcastToRoom(room: ActiveRoom, payload: any) {
   if (room.player1.ws && room.player1.ws.readyState === WebSocket.OPEN) {
     room.player1.ws.send(jsonStr);
   }
-  if (room.player2.ws && room.player2.ws.readyState === WebSocket.OPEN) {
+  if (room.player2 && room.player2.ws && room.player2.ws.readyState === WebSocket.OPEN) {
     room.player2.ws.send(jsonStr);
   }
 }
@@ -349,7 +358,7 @@ function startNextRound(room: ActiveRoom) {
     timer: room.timer,
     players: [
       { id: room.player1.id, name: room.player1.name, hp: room.player1.hp, faceUrl: room.player1.faceUrl },
-      { id: room.player2.id, name: room.player2.name, hp: room.player2.hp, faceUrl: room.player2.faceUrl }
+      room.player2 ? { id: room.player2.id, name: room.player2.name, hp: room.player2.hp, faceUrl: room.player2.faceUrl } : null
     ]
   });
 
@@ -359,7 +368,7 @@ function startNextRound(room: ActiveRoom) {
     room.timer -= 1;
 
     // Check AI automatic response if player2 is AI
-    if (room.player2.isAi && room.status === 'QUIZ_ACTIVE') {
+    if (room.player2 && room.player2.isAi && room.status === 'QUIZ_ACTIVE') {
       const qIndex = room.questionIndex;
       if (!room.player2.answers[qIndex]) {
         // AI answers around 4-7 seconds in
@@ -412,6 +421,7 @@ function checkRoundCompletion(room: ActiveRoom) {
 }
 
 function processRoundResult(room: ActiveRoom) {
+  if (!room.player2) return;
   room.status = 'ROUND_RESULT';
   const qIndex = room.questionIndex;
   const p1Ans = room.player1.answers[qIndex];
@@ -650,6 +660,102 @@ wss.on('connection', (ws) => {
         matchmakingQueue = matchmakingQueue.filter((s) => s !== session);
         ws.send(JSON.stringify({ type: 'MATCHMAKING_CANCELLED' }));
       }
+
+      if (data.type === 'CREATE_CUSTOM_ROOM') {
+        session.playerName = data.playerName || session.playerName;
+        session.faceUrl = data.faceUrl || '';
+
+        if (session.roomId) {
+          activeRooms.delete(session.roomId);
+        }
+
+        const roomCode = (data.roomId || generateRoomCode()).toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+        session.roomId = roomCode;
+
+        const newRoom: ActiveRoom = {
+          id: roomCode,
+          player1: {
+            id: session.playerId,
+            ws: session.ws,
+            name: session.playerName,
+            faceUrl: session.faceUrl,
+            hp: 100,
+            isAi: false,
+            answers: {}
+          },
+          status: 'WAITING',
+          questionIndex: 0,
+          currentQuestion: null,
+          timer: 3
+        };
+
+        activeRooms.set(roomCode, newRoom);
+
+        ws.send(
+          JSON.stringify({
+            type: 'CUSTOM_ROOM_CREATED',
+            roomId: roomCode,
+            player1: { id: session.playerId, name: session.playerName, faceUrl: session.faceUrl }
+          })
+        );
+      }
+
+      if (data.type === 'JOIN_CUSTOM_ROOM') {
+        session.playerName = data.playerName || session.playerName;
+        session.faceUrl = data.faceUrl || '';
+
+        const code = (data.roomId || '').toUpperCase().trim();
+        const room = activeRooms.get(code);
+
+        if (!room) {
+          ws.send(
+            JSON.stringify({
+              type: 'JOIN_ROOM_ERROR',
+              message: `방 코드 [${code}]를 찾을 수 없습니다. 코드를 재확인하세요.`
+            })
+          );
+        } else if (room.status !== 'WAITING' || room.player2) {
+          ws.send(
+            JSON.stringify({
+              type: 'JOIN_ROOM_ERROR',
+              message: `이미 경기 중이거나 정원이 가득 찬 방입니다.`
+            })
+          );
+        } else {
+          session.roomId = code;
+          room.player2 = {
+            id: session.playerId,
+            ws: session.ws,
+            name: session.playerName,
+            faceUrl: session.faceUrl,
+            hp: 100,
+            isAi: false,
+            answers: {}
+          };
+          room.status = 'COUNTDOWN';
+
+          broadcastToRoom(room, {
+            type: 'MATCH_FOUND',
+            roomId: code,
+            player1: { id: room.player1.id, name: room.player1.name, faceUrl: room.player1.faceUrl },
+            player2: { id: room.player2.id, name: room.player2.name, faceUrl: room.player2.faceUrl }
+          });
+
+          setTimeout(() => {
+            if (activeRooms.has(code)) {
+              startNextRound(room);
+            }
+          }, 3000);
+        }
+      }
+
+      if (data.type === 'CANCEL_CUSTOM_ROOM') {
+        if (session.roomId) {
+          activeRooms.delete(session.roomId);
+          session.roomId = undefined;
+        }
+        ws.send(JSON.stringify({ type: 'CUSTOM_ROOM_CANCELLED' }));
+      }
     } catch (e) {
       console.error('WebSocket Error processing message:', e);
     }
@@ -661,10 +767,12 @@ wss.on('connection', (ws) => {
       const room = activeRooms.get(session.roomId);
       if (room) {
         if (room.timerInterval) clearInterval(room.timerInterval);
-        broadcastToRoom(room, {
-          type: 'OPPONENT_DISCONNECTED',
-          message: '상대방의 연결이 끊어졌습니다.'
-        });
+        if (room.status !== 'WAITING') {
+          broadcastToRoom(room, {
+            type: 'OPPONENT_DISCONNECTED',
+            message: '상대방의 연결이 끊어졌습니다.'
+          });
+        }
         activeRooms.delete(session.roomId);
       }
     }
