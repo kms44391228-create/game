@@ -140,6 +140,19 @@ export const MatchmakingLobby: React.FC<MatchmakingLobbyProps> = ({
               </span>
             </div>
 
+            {/* If Opened via Invite Link */}
+            {initialRoomCode && !isWaitingCustomRoom && (
+              <div className="bg-amber-900/60 border border-amber-400/80 p-3 rounded-xl text-xs font-mono text-amber-200 flex items-center justify-between gap-2 animate-pulse">
+                <span>초대 링크 접속: 방 <strong>[{initialRoomCode}]</strong></span>
+                <button
+                  onClick={() => onJoinCustomRoom(initialRoomCode)}
+                  className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg transition shrink-0"
+                >
+                  즉시 대결 입장
+                </button>
+              </div>
+            )}
+
             {/* If Currently Waiting in Created Custom Room */}
             {isWaitingCustomRoom ? (
               <div className="flex flex-col items-center text-center gap-3 bg-neutral-900 p-4 rounded-xl border border-amber-500/40 animate-pulse">

@@ -38,15 +38,6 @@ export default function App() {
   const [isWaitingCustomRoom, setIsWaitingCustomRoom] = useState<boolean>(false);
   const [customRoomError, setCustomRoomError] = useState<string | null>(null);
 
-  // Parse URL search params ?room=CODE
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const roomParam = params.get('room') || params.get('code');
-    if (roomParam) {
-      setInitialRoomCode(roomParam.toUpperCase().trim());
-    }
-  }, []);
-
   // Battle Arena State
   const [p1Hp, setP1Hp] = useState<number>(100);
   const [p2Hp, setP2Hp] = useState<number>(100);
@@ -66,6 +57,34 @@ export default function App() {
   const [winnerName, setWinnerName] = useState<string>('');
   const [isWinner, setIsWinner] = useState<boolean>(false);
 
+  // Parse URL search params ?room=CODE
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room') || params.get('code');
+    if (roomParam) {
+      setInitialRoomCode(roomParam.toUpperCase().trim());
+    }
+  }, []);
+
+  // Timer Tick Effect (decrements timer every second during active battle)
+  useEffect(() => {
+    if (screen !== 'ARENA' || isGameOver || roundResult !== null) return;
+
+    const interval = setInterval(() => {
+      setTimer((prevTimer) => {
+        if (prevTimer <= 1) {
+          return 0;
+        }
+        if (prevTimer <= 4) {
+          soundFx.playCountdownBeep(prevTimer === 2);
+        }
+        return prevTimer - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [screen, isGameOver, roundResult, currentQuestion?.id]);
+
   // WebSocket Ref
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -79,7 +98,7 @@ export default function App() {
     }
   }, [faceUrl]);
 
-  // Connect WebSocket
+  // Connect WebSocket & Auto Join Shared Link Room
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
@@ -96,6 +115,22 @@ export default function App() {
             faceUrl
           })
         );
+
+        // Auto join if shared link code is present
+        const params = new URLSearchParams(window.location.search);
+        const roomParam = params.get('room') || params.get('code');
+        if (roomParam) {
+          const code = roomParam.toUpperCase().trim();
+          setGameMode('ONLINE_1V1');
+          ws.send(
+            JSON.stringify({
+              type: 'JOIN_CUSTOM_ROOM',
+              roomId: code,
+              playerName,
+              faceUrl
+            })
+          );
+        }
       };
 
       ws.onmessage = (event) => {
